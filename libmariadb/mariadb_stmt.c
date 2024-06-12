@@ -2543,6 +2543,9 @@ int STDCALL mysql_stmt_next_result(MYSQL_STMT *stmt)
     stmt->upsert_status.server_status= stmt->mysql->server_status;
     ma_status_callback(stmt->mysql, last_status);
     stmt->upsert_status.warning_count= stmt->mysql->warning_count;
+    /* CONC-702: Nothing to fetch, so status can't be
+       MYSQL_STMT_STORE_OR_USE */
+    stmt->state= MYSQL_STMT_FETCH_DONE;
   }
 
   stmt->field_count= stmt->mysql->field_count;

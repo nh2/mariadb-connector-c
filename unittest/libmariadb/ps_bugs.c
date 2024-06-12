@@ -4843,7 +4843,7 @@ static int test_codbc138(MYSQL *mysql)
   {0,0,0, 0,0,0, 0,0, MYSQL_TIMESTAMP_ERROR}
   },
 
-  {"SELECT '10:15:00'", 
+  {"SELECT '10:15:00'",
   {0,0,0, 10,15,0, 0,0, MYSQL_TIMESTAMP_TIME}
   },
   {"SELECT '10:15:01'",
@@ -4867,7 +4867,7 @@ static int test_codbc138(MYSQL *mysql)
   {"SELECT '-838:59:59'",
   {0,0,0, 838,59,59, 0, 1, MYSQL_TIMESTAMP_TIME},
   },
- 
+
   {"SELECT '00:60:00'",
   {0,0,0, 0,0,0, 0,0, MYSQL_TIMESTAMP_ERROR},
   },
@@ -4883,7 +4883,7 @@ static int test_codbc138(MYSQL *mysql)
   {"SELECT '1999-12-31 23:59:59.9999999'",
   {1999,12,31, 23,59,59, 999999, 0, MYSQL_TIMESTAMP_DATETIME},
   },
-  {"SELECT '00-08-11 8:46:40'", 
+  {"SELECT '00-08-11 8:46:40'",
   {2000,8,11, 8,46,40, 0,0, MYSQL_TIMESTAMP_DATETIME},
   },
   {"SELECT '1999-12-31 25:59:59.999999'",
@@ -4964,7 +4964,7 @@ static int test_conc344(MYSQL *mysql)
 
   rc= mysql_query(mysql, "DROP TABLE IF EXISTS t1");
   check_mysql_rc(rc, mysql);
- 
+
   rc= mysql_query(mysql, "CREATE TABLE t1 (a int, b int)");
   check_mysql_rc(rc, mysql);
   rc= mysql_query(mysql, "INSERT INTO t1 VALUES (1,1), (2,2),(3,3),(4,4),(5,5)");
@@ -5230,7 +5230,7 @@ static int test_mdev_21920(MYSQL *mysql)
 
   mysql_stmt_close(stmt);
 
-  return OK; 
+  return OK;
 }
 
 static int test_returning(MYSQL *mysql)
@@ -5690,7 +5690,7 @@ static int test_conc633(MYSQL *mysql)
   {
     diag("Error: expected stmt_id=-1");
     goto end;
-  }  
+  }
 
   if (!(my= test_connect(NULL)))
   {
@@ -5725,7 +5725,7 @@ static int test_conc633(MYSQL *mysql)
   {
     diag("Error: no stmt_id assigned");
     goto end;
-  }  
+  }
 
   rc= mysql_query(my, "UNLOCK TABLES");
   check_mysql_rc(rc, mysql);
@@ -5809,7 +5809,60 @@ static int test_conc683(MYSQL *mysql)
   return OK;
 }
 
+static int test_conc702(MYSQL *ma)
+{
+  MYSQL_STMT *stmt, *stmt2;
+
+  printf("Server info %s\nClient info: %s\n",
+  mysql_get_server_info(ma), mysql_get_client_info());
+
+  mysql_query(ma, "DROP PROCEDURE IF EXISTS p1");
+  mysql_query(ma, "CREATE PROCEDURE p1() BEGIN"
+                  "  SELECT 1 FROM DUAL; "
+                  "END");
+
+  stmt= mysql_stmt_init(ma);
+
+  FAIL_IF(!stmt, "Could not allocate stmt");
+
+  mysql_stmt_prepare(stmt, "CALL p1()", -1);
+  mysql_stmt_execute(stmt);
+
+  mysql_stmt_store_result(stmt);
+  // We've done everything w/ result and skip everything else
+  while (mysql_stmt_more_results(stmt)) {
+    if (!mysql_stmt_next_result(stmt))
+      mysql_stmt_store_result(stmt);
+    // state at this moment is MYSQL_STMT_WAITING_USE_OR_STORE. But there is no result,
+    // we can't store it. And there is no way to change it
+  }
+  // Now we are not closing it, for later use. For example it's been put to the cache
+  // Using connection freely - we haven't done anything wrong, "nothing is out of sync"
+  mysql_query(ma, "DROP PROCEDURE p1");
+  mysql_query(ma, "DROP PROCEDURE IF EXISTS p2");
+  mysql_query(ma, "CREATE PROCEDURE p2() "
+                  "BEGIN "
+                  "  SELECT 'Marten' FROM DUAL; "
+                  "  SELECT 'Zack' FROM DUAL; "
+                  "END");
+  stmt2= mysql_stmt_init(ma);
+
+  mysql_stmt_prepare(stmt2, "CALL p2()", -1);
+  mysql_stmt_execute(stmt2);
+
+  mysql_stmt_store_result(stmt2);
+
+  // we get here "Out of sync", and I see no way to overcome it
+  check_stmt_rc(mysql_stmt_next_result(stmt2), stmt2);
+
+  mysql_stmt_close(stmt2);
+  mysql_stmt_close(stmt);
+
+  return OK;
+}
+
 struct my_tests_st my_tests[] = {
+  {"test_conc702", test_conc702, TEST_CONNECTION_DEFAULT, 0, NULL, NULL},
   {"test_conc683", test_conc683, TEST_CONNECTION_DEFAULT, 0, NULL, NULL},
   {"test_conc667", test_conc667, TEST_CONNECTION_DEFAULT, 0, NULL, NULL},
   {"test_conc633", test_conc633, TEST_CONNECTION_DEFAULT, 0, NULL, NULL},
