@@ -47,6 +47,10 @@
 #define HAVE_OPENSSL_1_1_API
 #endif
 
+#ifdef WIN32
+#include <wincrypt.h>
+#endif
+
 #if OPENSSL_VERSION_NUMBER < 0x10000000L
 #define SSL_OP_NO_TLSv1_1 0L
 #define SSL_OP_NO_TLSv1_2 0L
@@ -87,6 +91,42 @@ static int ma_bio_write(BIO *h, const char *buf, int size);
 static BIO_METHOD ma_BIO_method;
 #endif
 
+#ifdef WIN32
+static int load_windows_trust_store(X509_STORE *x509_store)
+{
+  HCERTSTORE hcstore;
+  PCCERT_CONTEXT pctx= NULL;
+  X509 *cert= NULL;
+  int rc= 1;
+
+  if (!x509_store)
+    return 1;
+
+  if (!(hcstore = CertOpenSystemStoreW((HCRYPTPROV_LEGACY)NULL, L"ROOT")))
+    return 1;
+
+  while ((pctx= CertEnumCertificatesInStore(hcstore, pctx)))
+  {
+    if ((cert= d2i_X509(NULL, (const unsigned char **)&pctx->pbCertEncoded, pctx->cbCertEncoded)))
+    {
+      if (!X509_STORE_add_cert(x509_store, cert))
+        goto end;
+      X509_free(cert);
+      cert= NULL;
+    } else
+      goto end;
+  }
+  rc= 0;
+end:
+  if (cert)
+    X509_free(cert);
+  CertFreeCertificateContext(pctx);
+  CertCloseStore(hcstore, 0);
+
+  return rc;
+}
+
+#endif
 
 static long ma_tls_version_options(const char *version)
 {
@@ -349,6 +389,26 @@ static int ma_tls_set_certs(MYSQL *mysql, SSL_CTX *ctx)
     if (SSL_CTX_set_default_verify_paths(ctx) == 0)
       goto error;
   }
+
+#ifdef WIN32
+  /* OpenSSL doesn't install any certificates on windows,
+     so we need to import them from Windows cert store. */
+/*
+  if (!mysql->options.ssl_ca && !mysql->options.ssl_capath)
+  {
+    X509_STORE *certstore;
+
+    if (certstore= SSL_CTX_get_cert_store(ctx))
+    {
+      if (load_windows_trust_store(certstore))
+      {
+        my_set_error(mysql, CR_SSL_CONNECTION_ERROR, SQLSTATE_UNKNOWN,
+                   CER(CR_SSL_CONNECTION_ERROR), "Unable to load windows trust store");
+        return 1;
+      }
+    }
+  } */
+#endif
 
   if (mysql->options.extension &&
      (mysql->options.extension->ssl_crl || mysql->options.extension->ssl_crlpath))
